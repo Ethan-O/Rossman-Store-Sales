@@ -1,0 +1,150 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+install.packages('devtools')
+devtools::install_github('catboost/catboost', subdir = 'catboost/R-package')
+
+```{r}
+
+#install.packages('xgboost')
+#install.packages('caret')
+#install.packages('plotly')
+#install.packages('ggplot2')
+#install.packages('dplyr')
+#install.packages('data.table')
+
+library(readr)
+library(caret)
+library(plotly)
+library(ggplot2)
+library(prophet)
+library(data.table)
+library(dplyr)
+
+
+#my favorite seed^^
+
+cat("reading the train and test data\n")
+train <- read_csv("input/train.csv")
+test  <- read_csv("input/test.csv")
+store <- read_csv("input/store.csv")
+
+# removing the date column (since elements are extracted) and also StateHoliday which has a lot of NAs (may add it back in later)
+train <- merge(train,store)
+test <- merge(test,store)
+
+factors = c("StateHoliday", "SchoolHoliday","StoreType","Assortment","Promo2","Promo","Open","PromoInterval","Store")
+
+for (f in factors){
+  train[is.na(train[,f]),f] <- "N"
+  test[is.na(test[,f]),f] <- "N"
+}
+
+train[is.na(train)] <- 0
+test[is.na(test)] <- 0
+
+
+for (f in factors){
+  train[,f] <- factor(train[,f])
+  test[,f] <- factor(test[,f])
+  levels(train) <- union(levels(train),levels(test))
+  levels(test) <- union(levels(train),levels(test))
+}
+
+#summary(train[-c(4,5)])
+#summary(test[-c(2)])
+library(plyr)
+factors = c("StateHoliday", "SchoolHoliday","StoreType","Assortment","Promo2","Promo","Open","PromoInterval")
+prop_matrix = data.frame(train_t = double(), test_t = double())
+
+for (f in factors){
+  train_t = prop.table(table(train[f]))
+  test_t = prop.table(table(test[f]))
+  m <- cbind(train_t,test_t)
+  rownames(m) <- paste( rownames(m), f, sep="_")
+  prop_matrix <- rbind(prop_matrix,m)
+}
+data.frame(prop_matrix)
+
+
+```
+
+
+
+
+
+```{r}
+
+#Correlation Heat map
+library(plotly)
+tr = train
+tr[] <- lapply(tr,as.integer)
+p <- plot_ly(x = names(tr), y = names(tr),
+    z = cor(tr), type = "heatmap"
+) %>% 
+  layout(
+    title= "Correlation Plot",
+    yaxis = list(title="Features")
+    )
+p
+```
+
+```{r}
+
+
+# read data for store 2
+traina = train[train$Store == 2,]
+traina = traina[traina$Sales>0,]
+traina = traina[c("Date","Sales")]
+
+
+# Visualize the data
+ggplot(traina) + geom_line(aes(Date, Sales))
+
+# Change column names
+names(traina) = c("ds", "y")
+
+library(prophet)
+# Model building
+m = prophet(traina)
+future = make_future_dataframe(m, periods = 60)
+forecast = predict(m, future)
+
+# Visualize forecast
+plot(m, forecast)
+
+#dyplot.prophet(m, forecast)
+prophet_plot_components(m, forecast)
+```
+
+
+
+
+```{r}
+
+#Means Sales grouped by Assortment, DayofWeek, and  Promotion
+train[is.na(train)]   <- 0
+weekly.promo <- ddply(train,~DayOfWeek + Promo+ Assortment,summarise,Sales=mean(Sales))
+
+p<- ggplot(tr, aes(x=DayOfWeek,y= Sales, col=Promo)) + geom_line() 
+p + facet_grid(rows= vars(Assortment)) + labs(title= "Promotion 1 Average Sales")
+
+weekly.promo2 <- ddply(train,~DayOfWeek + Promo2+ Assortment,summarise,Sales=mean(Sales))
+
+p<- ggplot(weekly.promo2, aes(x=DayOfWeek,y= Sales, col=Promo2)) + geom_line() 
+p + facet_grid(rows = vars(Assortment)) + labs(title= "Promotion 2 Average Sales")
+
+```
+
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
